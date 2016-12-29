@@ -1,10 +1,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <glm/glm.hpp>
+#include <GLM/glm.hpp>
 #include <vector>
 #include <thread>
-#include <initializer_list>
 #include <chrono>
 #include <iostream>
 
@@ -169,50 +168,74 @@ vec3 radiance(const Ray &r, int depth, unsigned short *Xi,int E=1)
 void render(int fromRow, int toRow, int w, int h, int samps, const Ray& cam, const vec3& cx, const vec3& cy, vec3* c)
 {
     for (int y = fromRow; y < toRow; ++y)
-    {                       // Loop over image rows
-//        fprintf(stderr,"\rRendering (%d spp) %5.2f%%",samps*4,100.*y/(h-1));
+    {
         unsigned short Xi[3] = {0, 0, static_cast<unsigned short>(y*y*y)};
         for (unsigned short x = 0; x < w; ++x)   // Loop cols
+        {
             for (int sy=0, i = (h-y-1)*w+x; sy<2; sy++)     // 2x2 subpixel rows
+            {
                 for (int sx=0; sx<2; sx++){        // 2x2 subpixel cols
                     vec3 r = vec3();
                     for (int s=0; s<samps; s++){
-                        float r1=2*erand48(Xi), dx=r1<1 ? ::sqrtf(r1)-1: 1-::sqrtf(2-r1);
-                        float r2=2*erand48(Xi), dy=r2<1 ? ::sqrtf(r2)-1: 1-::sqrtf(2-r2);
-                        vec3 d = cx*( ( (sx+.5f + dx)/2.0f + x)/w - .5f) + cy*( ( (sy+.5f + dy)/2.0f + y)/h - .5f) + cam.d;
+                        float r1 = 2 * erand48(Xi), dx = r1 < 1.0f ? ::sqrtf(r1) - 1 : 1 -::sqrtf(2.0f - r1);
+                        float r2 = 2 * erand48(Xi), dy = r2 < 1.0f ? ::sqrtf(r2) - 1 : 1 -::sqrtf(2.0f - r2);
+                        vec3 d = cx * (((sx+.5f + dx)/2.0f + x)/w - 0.5f) + cy*( ( (sy+0.5f + dy)/2.0f + y)/h - 0.5f) + cam.d;
                         r = r + radiance(Ray(cam.o+d * 140.0f, normalize(d)),0,Xi)*(1.0f/samps);
                     } // Camera rays are pushed ^^^^^ forward to start in interior
                     c[i] = c[i] + vec3(clamp(r.x),clamp(r.y),clamp(r.z))*.25f;
                 }
+            }
+        }
     }
+}
+
+void writeImageToPPM(const char* fileName, const vec3* image, const int w, const int h)
+{
+    assert(fileName != nullptr);
+    FILE* f = fopen(fileName, "w");
+    assert(f != nullptr);
+    fprintf(f, "P3\n%d %d\n%d\n", w, h, 255);
+    for (int i = 0; i < w * h; ++i)
+    {
+        fprintf(f,"%d %d %d ", toInt(image[i].x), toInt(image[i].y), toInt(image[i].z));
+    }
+    fclose(f);
 }
 
 int main(int argc, char *argv[])
 {
-    int w=1024, h=768;
-    int samps = argc==2 ? atoi(argv[1])/4 : 100; // # samples
+    int width = 1024;
+    int height = 768;
+    int samps = argc >= 2 ? atoi(argv[1]) / 4 : 2; // # samples
+    int threadCount = argc >= 3 ? atoi(argv[2]) : 4; // thread count = 4 by default
+    
     Ray cam(vec3(50.0f, 35.0f, 270.0f), normalize(vec3(0.0f, 0.0f, -1.0f))); // cam pos, dir
-    vec3 cx=vec3(w * 0.5135f / h, 0.0f, 0.0f);
-    vec3 cy=normalize(cross(cx, cam.d))*0.5135f;
-    vec3 r, *c=new vec3[w*h];
-    int parts = 4;
-    std::thread *tt = new std::thread[parts];
+    vec3 cx = vec3(width * 0.5135f / height, 0.0f, 0.0f);
+    vec3 cy = normalize(cross(cx, cam.d)) * 0.5135f;
+    vec3* c = new vec3[width * height];
+    
+    std::thread* workers = new std::thread[threadCount];
+    
     auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < parts; ++i)
+    
+    for (int i = 0; i < threadCount; ++i)
     {
-        int from = i * (h / parts);
-        int to = (i + 1) * (h / parts);
-        tt[i] = std::thread(render, from, to, w, h, samps, cam, cx, cy, c);
+        int from = i * (height / threadCount);
+        int to = (i + 1) * (height / threadCount);
+        workers[i] = std::thread(render, from, to, width, height, samps, cam, cx, cy, c);
     }
-    for (int i = 0; i < parts; ++i)
+    for (int i = 0; i < threadCount; ++i)
     {
-        tt[i].join();
+        workers[i].join();
     }
+    
     auto end = std::chrono::steady_clock::now();
     auto diff = end - start;
-    std::cout << std::chrono::duration <double, std::milli> (diff).count() << " ms" << std::endl;
-    FILE *f = fopen("image.ppm", "w");         // Write image to PPM file.
-    fprintf(f, "P3\n%d %d\n%d\n", w, h, 255);
-    for (int i=0; i<w*h; i++)
-        fprintf(f,"%d %d %d ", toInt(c[i].x), toInt(c[i].y), toInt(c[i].z));
+    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count() << " ms" << std::endl;
+    
+    delete [] workers;
+    
+    writeImageToPPM("image.ppm", c, width, height);
+    
+    return 0;
 }
