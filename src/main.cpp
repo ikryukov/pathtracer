@@ -1,7 +1,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <GLM/glm.hpp>
+#include <glm/glm.hpp>
 #include <vector>
 #include <thread>
 #include <chrono>

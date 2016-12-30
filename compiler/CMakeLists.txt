@@ -5,7 +5,7 @@ project (${PROJECT})
  
 include_directories (
 		../src/
-		../3rdparty/glm/include/
+		../3rdparty/GLM/include/
 		)
 
 FILE(GLOB MyHeaders ../src/*.h)
